@@ -35,5 +35,6 @@ the repository root to the output directory.
 
 ## The post
 
-The X post that is this entry will be linked here once it is up; its address
-is recorded in `POST.json`.
+The X post that is this entry is live:
+https://x.com/Wilayyyy/status/2125274423582392379 — its address is recorded
+in `POST.json`.
