@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROCKET DODGE — a one-prompt game</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060f; overflow: hidden; }
+  canvas { display: block; margin: 0 auto; background: #05060f; }
+</style>
+</head>
+<body>
+<canvas id="game" width="540" height="960"></canvas>
+<script>
+"use strict";
+// ROCKET DODGE: pilot the rocket, dodge the asteroids,
+// survive as long as you can. Left/right arrows or drag.
+const cv = document.getElementById("game");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+
+let seed = 20261124;
+function rnd() { // tiny deterministic rng
+  seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+const rocket = { x: W / 2, y: H - 170, w: 46, speed: 460 };
+const rocks = [];
+const stars = [];
+let keys = {}, alive = true, t0 = performance.now(), survived = 0, score = 0;
+
+for (let i = 0; i < 110; i++)
+  stars.push({ x: rnd() * W, y: rnd() * H, s: rnd() * 2 + 0.6, v: 26 + rnd() * 60 });
+
+function spawnRock() {
+  const r = 15 + rnd() * 30;
+  rocks.push({ x: r + rnd() * (W - 2 * r), y: -r, r: r,
+               vy: 210 + rnd() * 190 + survived * 6,
+               vx: (rnd() - 0.5) * 60, rot: rnd() * 6.28, vr: (rnd() - 0.5) * 2,
+               seed: (rnd() * 1e9) | 0 });
+}
+
+addEventListener("keydown", e => { keys[e.key] = true; });
+addEventListener("keyup",   e => { keys[e.key] = false; });
+let dragX = null;
+cv.addEventListener("pointerdown", e => { dragX = e.clientX; });
+cv.addEventListener("pointermove", e => {
+  if (dragX === null) return;
+  const box = cv.getBoundingClientRect();
+  rocket.x = (e.clientX - box.left) * (W / box.width);
+});
+addEventListener("pointerup", () => { dragX = null; });
+cv.addEventListener("click", () => { if (!alive) location.reload(); });
+
+let last = performance.now(), spawnTimer = 0;
+function frame(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  if (alive) {
+    survived = (now - t0) / 1000;
+    score = Math.floor(survived * 10);
+    if (keys["ArrowLeft"] || keys["a"])  rocket.x -= rocket.speed * dt;
+    if (keys["ArrowRight"] || keys["d"]) rocket.x += rocket.speed * dt;
+    rocket.x = Math.max(24, Math.min(W - 24, rocket.x));
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) { spawnRock(); spawnTimer = Math.max(0.16, 0.55 - survived * 0.012); }
+  }
+  for (const s of stars) { s.y += s.v * dt; if (s.y > H) { s.y = -2; s.x = rnd() * W; } }
+  for (let i = rocks.length - 1; i >= 0; i--) {
+    const a = rocks[i];
+    a.y += a.vy * dt; a.x += a.vx * dt; a.rot += a.vr * dt;
+    if (a.y - a.r > H) { rocks.splice(i, 1); continue; }
+    const dx = a.x - rocket.x, dy = a.y - rocket.y;
+    if (alive && dx * dx + dy * dy < (a.r + 26) * (a.r + 26)) alive = false;
+  }
+  draw(now / 1000);
+  requestAnimationFrame(frame);
+}
+
+function draw(t) {
+  ctx.fillStyle = "#05060f"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#aebaff";
+  for (const s of stars) ctx.fillRect(s.x, s.y, s.s, s.s);
+  for (const a of rocks) { // asteroid: grey disc + darker craters
+    ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(a.rot);
+    ctx.fillStyle = "#8d8fa3"; ctx.beginPath(); ctx.arc(0, 0, a.r, 0, 6.29); ctx.fill();
+    ctx.fillStyle = "#6d6f83";
+    let s2 = a.seed;
+    for (let k = 0; k < 3; k++) {
+      s2 = (s2 * 1103515245 + 12345) & 0x7fffffff;
+      const cx = (s2 % 100) / 100 * a.r - a.r / 2;
+      s2 = (s2 * 1103515245 + 12345) & 0x7fffffff;
+      const cy = (s2 % 100) / 100 * a.r - a.r / 2;
+      ctx.beginPath(); ctx.arc(cx, cy, a.r * 0.22, 0, 6.29); ctx.fill();
+    }
+    ctx.restore();
+  }
+  if (alive) { // the rocket: white body, red fins, flickering flame
+    ctx.save(); ctx.translate(rocket.x, rocket.y);
+    ctx.fillStyle = "#ff7847";
+    ctx.beginPath();
+    ctx.moveTo(-7, 24); ctx.lineTo(0, 40 + Math.sin(t * 40) * 7); ctx.lineTo(7, 24);
+    ctx.fill();
+    ctx.fillStyle = "#e33f4e";
+    ctx.beginPath();
+    ctx.moveTo(-10, 8); ctx.lineTo(-24, 26); ctx.lineTo(-9, 26); ctx.fill();
+    ctx.moveTo(10, 8); ctx.lineTo(24, 26); ctx.lineTo(9, 26); ctx.fill();
+    ctx.fillStyle = "#f2f4ff";
+    ctx.beginPath();
+    ctx.moveTo(0, -30); ctx.quadraticCurveTo(13, -6, 11, 26);
+    ctx.lineTo(-11, 26); ctx.quadraticCurveTo(-13, -6, 0, -30);
+    ctx.fill();
+    ctx.fillStyle = "#39c2ff";
+    ctx.beginPath(); ctx.arc(0, -6, 6, 0, 6.29); ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle = "#ffffff"; ctx.font = "bold 26px monospace";
+  ctx.fillText("SCORE " + score, 18, 38);
+  ctx.font = "16px monospace"; ctx.fillStyle = "#8f97c9";
+  ctx.fillText("SURVIVE!", W - 96, 38);
+  if (!alive) {
+    ctx.fillStyle = "rgba(5,6,15,0.72)"; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#ff5470"; ctx.font = "bold 44px monospace";
+    ctx.fillText("GAME OVER", W / 2 - 130, H / 2 - 20);
+    ctx.fillStyle = "#ffffff"; ctx.font = "22px monospace";
+    ctx.fillText("you survived " + survived.toFixed(1) + "s", W / 2 - 118, H / 2 + 22);
+    ctx.fillStyle = "#8f97c9"; ctx.font = "16px monospace";
+    ctx.fillText("click to fly again", W / 2 - 84, H / 2 + 58);
+  }
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
